@@ -1,0 +1,8 @@
+# Environment variables
+.env
+
+# Docker volumes (runtime data)
+volumes/
+
+# IDE
+.idea/

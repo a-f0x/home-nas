@@ -1,0 +1,53 @@
+# =====================================================
+# Traefik Configuration
+# =====================================================
+
+# API и Dashboard
+api:
+  dashboard: true  # Включить dashboard
+  insecure: true   # Dashboard доступен без HTTPS (только для локальной сети!)
+
+# Entry Points (порты)
+entryPoints:
+  web:
+    address: ":80"
+    # Редирект HTTP -> HTTPS (глобальный)
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: letsencrypt
+
+# Провайдеры
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false  # Только контейнеры с traefik.enable=true
+    network: homeserver-net
+
+# Let's Encrypt
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: f0x@ton618.ru
+      storage: /acme.json
+      # Используйте HTTP challenge
+      httpChallenge:
+        entryPoint: web
+      # Или TLS challenge (если порт 80 недоступен)
+      # tlsChallenge: {}
+
+# Логирование
+log:
+  level: INFO  # DEBUG, INFO, WARN, ERROR
+
+# Access logs (опционально)
+# accessLog:
+#   filePath: "/var/log/traefik/access.log"

@@ -1,0 +1,147 @@
+version: "3.9"
+services:
+  # =====================================================
+  # Traefik - Reverse Proxy с автоматическим HTTPS
+  # =====================================================
+  traefik:
+    image: traefik:v3.2
+    restart: always
+    ports:
+      - "80:80"       # HTTP
+      - "443:443"     # HTTPS
+      - "${TRAEFIK_DASHBOARD_PORT:-8080}:8080"   # Traefik Dashboard (локальная сеть)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Доступ к Docker API
+      - ./docker/traefik/traefik.yml:/traefik.yml:ro  # Основная конфигурация
+      - ./volumes/traefik/acme.json:/acme.json        # Сертификаты Let's Encrypt
+    environment:
+      - TZ=Europe/Moscow
+    labels:
+      # Dashboard (опционально)
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+      # Базовая аутентификация для dashboard
+      - "traefik.http.routers.dashboard.middlewares=auth"
+      - "traefik.http.middlewares.auth.basicauth.users=${TRAEFIK_DASHBOARD_AUTH}"
+
+  # =====================================================
+  # PostgreSQL - Единая БД для всех приложений
+  # =====================================================
+  db:
+    image: postgres:18.3-alpine3.23
+    restart: always
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ./volumes/pg_data:/var/lib/postgresql/18/docker
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/1-schema.sql
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_ROOT_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+
+  db-backup:
+    image: prodrigestivill/postgres-backup-local
+    restart: always
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ROOT_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      SCHEDULE: 0 2 * * *           #  02:00 ночи каждый день
+#      SCHEDULE: "* * * * *"
+      BACKUP_KEEP_DAYS: 7        # Хранить копии за последние 7 дней
+    volumes:
+      - ./volumes/backup/pg/nextcloud:/backups
+
+  # =====================================================
+  # Nextcloud - Облачное хранилище
+  # =====================================================
+  nextcloud:
+    image: nextcloud
+    restart: always
+    ports:
+      - "${NEXTCLOUD_LOCAL_PORT:-8081}:80"     # Доступ в локальной сети
+    depends_on:
+      - db
+      - traefik
+    volumes:
+      - ./volumes/nextcloud:/var/www/html
+    environment:
+      POSTGRES_DB: ${POSTGRES_NC_DB}
+      POSTGRES_USER: ${POSTGRES_NC_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_NC_PASSWORD}
+      POSTGRES_HOST: db
+      # Настройки для работы за Traefik
+      OVERWRITEPROTOCOL: https
+      OVERWRITEHOST: ${NEXTCLOUD_DOMAIN}
+      TRUSTED_PROXIES: traefik
+    labels:
+      - "traefik.enable=true"
+      # HTTP роутер (редирект на HTTPS)
+      - "traefik.http.routers.nextcloud-http.rule=Host(`${NEXTCLOUD_DOMAIN}`)"
+      - "traefik.http.routers.nextcloud-http.entrypoints=web"
+      - "traefik.http.routers.nextcloud-http.middlewares=nextcloud-https-redirect"
+      # HTTPS роутер
+      - "traefik.http.routers.nextcloud.rule=Host(`${NEXTCLOUD_DOMAIN}`)"
+      - "traefik.http.routers.nextcloud.entrypoints=websecure"
+      - "traefik.http.routers.nextcloud.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.nextcloud.middlewares=nextcloud-headers"
+      # Сервис
+      - "traefik.http.services.nextcloud.loadbalancer.server.port=80"
+      # Middlewares
+      - "traefik.http.middlewares.nextcloud-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.nextcloud-https-redirect.redirectscheme.permanent=true"
+      # Заголовки для Nextcloud
+      - "traefik.http.middlewares.nextcloud-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.nextcloud-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.nextcloud-headers.headers.stsPreload=true"
+      - "traefik.http.middlewares.nextcloud-headers.headers.customFrameOptionsValue=SAMEORIGIN"
+
+  # =====================================================
+  # Navidrome - Музыкальный стриминг-сервер
+  # =====================================================
+  navidrome:
+    image: deluan/navidrome:0.60.3
+    restart: always
+    ports:
+      - "${NAVIDROME_LOCAL_PORT:-4533}:4533"   # Доступ в локальной сети
+    depends_on:
+      - traefik
+    volumes:
+      - ./volumes/navidrome/data:/data        # БД SQLite и кэш
+      - ${NAVIDROME_MUSIC_PATH}:/music:ro     # Музыкальная библиотека (read-only)
+    environment:
+      ND_SCANSCHEDULE: 1h                     # Сканировать библиотеку каждый час
+      ND_LOGLEVEL: info
+      ND_BASEURL: ""
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.navidrome.rule=Host(`${NAVIDROME_DOMAIN}`)"
+      - "traefik.http.routers.navidrome.entrypoints=websecure"
+      - "traefik.http.routers.navidrome.tls.certresolver=letsencrypt"
+      - "traefik.http.services.navidrome.loadbalancer.server.port=4533"
+
+  # =====================================================
+  # qBittorrent - Торрент-клиент
+  # =====================================================
+  qbittorrent:
+    image: qbittorrentofficial/qbittorrent-nox:5.1.4-2
+    restart: always
+    network_mode: host
+    volumes:
+      - ./volumes/qbittorrent/config:/config
+      - ${QBITTORRENT_DOWNLOADS_PATH}:/downloads
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Moscow
+      - QBT_EULA=accept
+      - QBT_VERSION=5.1.4
+      - QBT_WEBUI_PORT=${QBITTORRENT_LOCAL_PORT:-8082}
+
+networks:
+  default:
+    name: homeserver-net
