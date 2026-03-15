@@ -70,7 +70,7 @@
 │       └──────────────┼────────────┘         │
 │                      ▼                      │
 │            ┌─────────────────────┐          │
-│            │   PostgreSQL :5432   │         │
+│            │   PostgreSQL :5432  │          │
 │            │  ┌─────────────────┐│          │
 │            │  │ DB: nextcloud   ││          │
 │            │  │ DB: [others]    ││          │
@@ -110,23 +110,10 @@ nano .env
 ### 2. Запустите инфраструктуру
 
 ```bash
-# Запустить PostgreSQL и бекапы
-docker-compose up -d db db-backup
+docker-compose up -d
 
-# Дождаться запуска БД (5-10 секунд)
-sleep 10
 ```
-
-### 3. Запустите приложения
-
-```bash
-# Запустить Nextcloud
-docker-compose up -d nextcloud
-
-# Добавьте другие приложения по мере необходимости
-```
-
-### 4. Настройте приложения
+### 3. Настройте приложения
 
 - **Nextcloud**: http://localhost:8081 (NEXTCLOUD_LOCAL_PORT)
 
@@ -171,7 +158,7 @@ docker-compose up -d nextcloud
    docker-compose up -d navidrome
    ```
 
-3. **Откройте** https://music.yourdomain.com (или локально)
+3. **Откройте** http://localhost:4533 (или измените NAVIDROME_LOCAL_PORT в .env)
 
 4. **При первом входе** создайте администратора
 
@@ -541,118 +528,6 @@ home-server/
 
 ### Рекомендуется для production:
 
-- 🔒 **Reverse proxy** (Nginx/Caddy/Traefik) с HTTPS
 - 🔒 **Fail2ban** для защиты от брутфорса
-- 🔒 **VPN** (WireGuard/Tailscale) для удалённого доступа
-- 🔒 **Мониторинг** (Prometheus + Grafana)
 - 🔒 **Offsite бекапы** (синхронизация на S3/другой сервер)
 
-### Проверка безопасности:
-
-```bash
-# Проверить открытые порты
-sudo netstat -tulpn | grep LISTEN
-
-# Проверить, что .env не в git
-git status --ignored
-
-# Проверить права доступа
-ls -la .env
-# Должно быть: -rw------- (600)
-```
-
----
-
-## Troubleshooting
-
-### PostgreSQL не запускается
-
-```bash
-# Проверить логи
-docker-compose logs db
-
-# Проверить права доступа
-ls -la volumes/pg_data/
-
-# Пересоздать контейнер
-docker-compose down db
-docker-compose up -d db
-```
-
-### Приложение не подключается к БД
-
-```bash
-# Проверить, что БД создана
-docker-compose exec db psql -U postgres -c "\l"
-
-# Проверить пользователя
-docker-compose exec db psql -U postgres -c "\du"
-
-# Проверить переменные окружения
-docker-compose config
-```
-
-### Бекапы не создаются
-
-```bash
-# Проверить логи бекап-сервиса
-docker-compose logs db-backup
-
-# Проверить папку бекапов
-ls -la volumes/backup/pg/nextcloud/
-
-# Вручную запустить бекап
-docker-compose exec db pg_dump -U postgres nextcloud
-```
-
-### Nextcloud: "Trusted domain error"
-
-Добавьте ваш IP/домен в `volumes/nextcloud/config/config.php`:
-
-```php
-'trusted_domains' => 
-  array (
-    0 => 'localhost:8080',
-    1 => '192.168.1.100:8080',  // Ваш локальный IP
-  ),
-```
-
-### Проблемы с правами доступа
-
-```bash
-# Nextcloud
-sudo chown -R www-data:www-data volumes/nextcloud
-
-# PostgreSQL
-sudo chown -R 999:999 volumes/pg_data
-```
-
-### Не хватает места на диске
-
-```bash
-# Проверить использование
-du -sh volumes/*
-
-# Очистить старые логи Docker
-docker system prune -a
-
-# Очистить старые бекапы (опционально)
-find volumes/backup/ -mtime +30 -delete
-```
-
----
-
-## Roadmap
-
-### В планах:
-
-- [ ] Traefik для автоматического HTTPS
-- [ ] Мониторинг (Prometheus + Grafana)
-- [ ] Пример с GitLab/Gitea
-- [ ] Пример с Bitwarden
-- [ ] Offsite бекапы (rclone + S3)
-- [ ] Ansible playbook для развёртывания
-
-### Хотите добавить что-то?
-
-Создайте issue или pull request!
