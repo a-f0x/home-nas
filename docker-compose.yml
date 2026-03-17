@@ -75,7 +75,7 @@ services:
   # Seafile
   # =====================================================
   seafile:
-    image: ${SEAFILE_IMAGE:-seafileltd/seafile-mc:13.0-latest}
+    image: seafileltd/seafile-mc:13.0.19
     container_name: seafile
     restart: unless-stopped
     ports:
