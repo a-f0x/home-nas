@@ -5,7 +5,8 @@ services:
   # =====================================================
   traefik:
     image: traefik:v3.2
-    restart: always
+    restart: unless-stopped
+    container_name: traefik
     ports:
       - "80:80"       # HTTP
       - "443:443"     # HTTPS
@@ -15,97 +16,140 @@ services:
       - ./docker/traefik/traefik.yml:/traefik.yml:ro  # Основная конфигурация
       - ./volumes/traefik/acme.json:/acme.json        # Сертификаты Let's Encrypt
     environment:
-      - TZ=Europe/Moscow
-    labels:
-      # Dashboard (опционально)
-      - "traefik.enable=true"
-      - "traefik.http.routers.dashboard.rule=Host(`traefik.${DOMAIN}`)"
-      - "traefik.http.routers.dashboard.service=api@internal"
-      - "traefik.http.routers.dashboard.entrypoints=websecure"
-      - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
-      # Базовая аутентификация для dashboard
-      - "traefik.http.routers.dashboard.middlewares=auth"
-      - "traefik.http.middlewares.auth.basicauth.users=${TRAEFIK_DASHBOARD_AUTH}"
+      - TZ=${TIME_ZONE}
+#    labels:
+#      # Dashboard (опционально)
+#      - "traefik.enable=true"
+#      - "traefik.http.routers.dashboard.rule=Host(`traefik.${DOMAIN}`)"
+#      - "traefik.http.routers.dashboard.service=api@internal"
+#      - "traefik.http.routers.dashboard.entrypoints=websecure"
+#      - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+#      # Базовая аутентификация для dashboard
+#      - "traefik.http.routers.dashboard.middlewares=auth"
+#      - "traefik.http.middlewares.auth.basicauth.users=${TRAEFIK_DASHBOARD_AUTH}"
 
   # =====================================================
-  # PostgreSQL - Единая БД для всех приложений
+  # MairaDb
   # =====================================================
   db:
-    image: postgres:18.3-alpine3.23
-    restart: always
+    image: mariadb:10.11.16
+    restart: unless-stopped
+    container_name: mariadb
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "3306:3306"
     volumes:
-      - ./volumes/pg_data:/var/lib/postgresql/18/docker
-      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/1-schema.sql
+      - "${MYSQL_DATA}:/var/lib/mysql"
     environment:
-      POSTGRES_PASSWORD: ${POSTGRES_ROOT_PASSWORD}
-      POSTGRES_USER: ${POSTGRES_USER}
-
-  db-backup:
-    image: prodrigestivill/postgres-backup-local
-    restart: always
-    environment:
-      POSTGRES_HOST: db
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_ROOT_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-      SCHEDULE: 0 2 * * *           #  02:00 ночи каждый день
-#      SCHEDULE: "* * * * *"
-      BACKUP_KEEP_DAYS: 7        # Хранить копии за последние 7 дней
-    volumes:
-      - ./volumes/backup/pg/nextcloud:/backups
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-}
+      - MYSQL_LOG_CONSOLE=true
+      - MARIADB_AUTO_UPGRADE=1
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/usr/local/bin/healthcheck.sh",
+          "--connect",
+          "--mariadbupgrade",
+          "--innodb_initialized",
+        ]
+      interval: 20s
+      start_period: 30s
+      timeout: 5s
+      retries: 10
 
   # =====================================================
-  # Nextcloud - Облачное хранилище
+  # Redis
   # =====================================================
-  nextcloud:
-    image: nextcloud
-    restart: always
+  redis:
+    container_name: redis
+    image: redis:8.6.1
+    restart: unless-stopped
+    command:
+      - /bin/sh
+      - -c
+      - redis-server --requirepass "$$REDIS_PASSWORD"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+
+  # =====================================================
+  # Seafile
+  # =====================================================
+  seafile:
+    image: ${SEAFILE_IMAGE:-seafileltd/seafile-mc:13.0-latest}
+    container_name: seafile
+    restart: unless-stopped
     ports:
-      - "${NEXTCLOUD_LOCAL_PORT:-8081}:80"     # Доступ в локальной сети
+      - "8081:80"
+    volumes:
+      - ${SEAFILE_VOLUME}:/shared
+    environment:
+      - SEAFILE_MYSQL_DB_HOST=db
+      - SEAFILE_MYSQL_DB_PORT=3306
+      - SEAFILE_MYSQL_DB_USER=seafile
+      - SEAFILE_MYSQL_DB_PASSWORD=${SEAFILE_MYSQL_DB_PASSWORD:?Variable is not set or empty}
+      - INIT_SEAFILE_MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - SEAFILE_MYSQL_DB_CCNET_DB_NAME=ccnet_db
+      - SEAFILE_MYSQL_DB_SEAFILE_DB_NAME=seafile_db
+      - SEAFILE_MYSQL_DB_SEAHUB_DB_NAME=seahub_db
+      - TIME_ZONE=${TIME_ZONE}
+      - INIT_SEAFILE_ADMIN_EMAIL=${SEAFILE_INIT_ADMIN_EMAIL}
+      - INIT_SEAFILE_ADMIN_PASSWORD=${SEAFILE_INIT_ADMIN_PASSWORD}
+      - SEAFILE_SERVER_HOSTNAME=${SEAFILE_SERVER_HOSTNAME:?Variable is not set or empty}
+      - SEAFILE_SERVER_PROTOCOL=https
+      - SITE_ROOT=${SITE_ROOT:-/}
+      - NON_ROOT=${NON_ROOT:-false}
+      - JWT_PRIVATE_KEY=${SEAFILE_JWT_PRIVATE_KEY}
+      - SEAFILE_LOG_TO_STDOUT=false
+      - ENABLE_GO_FILESERVER=${ENABLE_GO_FILESERVER:-true}
+      - ENABLE_SEADOC=false
+      - CACHE_PROVIDER=${CACHE_PROVIDER:-redis}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - ENABLE_NOTIFICATION_SERVER=false
+      - ENABLE_SEAFILE_AI=false
+      - ENABLE_FACE_RECOGNITION=false
+      - MD_FILE_COUNT_LIMIT=${MD_FILE_COUNT_LIMIT:-100000}
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:80 || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     depends_on:
-      - db
-      - traefik
-    volumes:
-      - ./volumes/nextcloud:/var/www/html
-    environment:
-      POSTGRES_DB: ${POSTGRES_NC_DB}
-      POSTGRES_USER: ${POSTGRES_NC_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_NC_PASSWORD}
-      POSTGRES_HOST: db
-      # Настройки для работы за Traefik
-      OVERWRITEPROTOCOL: https
-      OVERWRITEHOST: ${NEXTCLOUD_DOMAIN}
-      TRUSTED_PROXIES: traefik
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     labels:
       - "traefik.enable=true"
       # HTTP роутер (редирект на HTTPS)
-      - "traefik.http.routers.nextcloud-http.rule=Host(`${NEXTCLOUD_DOMAIN}`)"
-      - "traefik.http.routers.nextcloud-http.entrypoints=web"
-      - "traefik.http.routers.nextcloud-http.middlewares=nextcloud-https-redirect"
+      - "traefik.http.routers.seafile-http.rule=Host(`${SEAFILE_SERVER_HOSTNAME}`)"
+      - "traefik.http.routers.seafile-http.entrypoints=web"
+      - "traefik.http.routers.seafile-http.middlewares=seafile-https-redirect"
       # HTTPS роутер
-      - "traefik.http.routers.nextcloud.rule=Host(`${NEXTCLOUD_DOMAIN}`)"
-      - "traefik.http.routers.nextcloud.entrypoints=websecure"
-      - "traefik.http.routers.nextcloud.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.nextcloud.middlewares=nextcloud-headers"
+      - "traefik.http.routers.seafile.rule=Host(`${SEAFILE_SERVER_HOSTNAME}`)"
+      - "traefik.http.routers.seafile.entrypoints=websecure"
+      - "traefik.http.routers.seafile.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.seafile.middlewares=seafile-headers"
       # Сервис
-      - "traefik.http.services.nextcloud.loadbalancer.server.port=80"
+      - "traefik.http.services.seafile.loadbalancer.server.port=80"
       # Middlewares
-      - "traefik.http.middlewares.nextcloud-https-redirect.redirectscheme.scheme=https"
-      - "traefik.http.middlewares.nextcloud-https-redirect.redirectscheme.permanent=true"
-      # Заголовки для Nextcloud
-      - "traefik.http.middlewares.nextcloud-headers.headers.stsSeconds=31536000"
-      - "traefik.http.middlewares.nextcloud-headers.headers.stsIncludeSubdomains=true"
-      - "traefik.http.middlewares.nextcloud-headers.headers.stsPreload=true"
-      - "traefik.http.middlewares.nextcloud-headers.headers.customFrameOptionsValue=SAMEORIGIN"
+      - "traefik.http.middlewares.seafile-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.seafile-https-redirect.redirectscheme.permanent=true"
+      # Заголовки для seafile
+      - "traefik.http.middlewares.seafile-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.seafile-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.seafile-headers.headers.stsPreload=true"
+      - "traefik.http.middlewares.seafile-headers.headers.customFrameOptionsValue=SAMEORIGIN"
 
   # =====================================================
   # Navidrome - Музыкальный стриминг-сервер
   # =====================================================
   navidrome:
     image: deluan/navidrome:0.60.3
-    restart: always
+    container_name: navidrome
+    restart: unless-stopped
     ports:
       - "${NAVIDROME_LOCAL_PORT:-4533}:4533"   # Доступ в локальной сети
     depends_on:
@@ -114,9 +158,9 @@ services:
       - ./volumes/navidrome/data:/data        # БД SQLite и кэш
       - ${NAVIDROME_MUSIC_PATH}:/music:ro     # Музыкальная библиотека (read-only)
     environment:
-      ND_SCANSCHEDULE: 1h                     # Сканировать библиотеку каждый час
-      ND_LOGLEVEL: info
-      ND_BASEURL: ""
+      - ND_SCANSCHEDULE=1h                     # Сканировать библиотеку каждый час
+      - ND_LOGLEVEL=info
+#      - ND_BASEURL="/"
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.navidrome.rule=Host(`${NAVIDROME_DOMAIN}`)"
@@ -128,8 +172,9 @@ services:
   # qBittorrent - Торрент-клиент
   # =====================================================
   qbittorrent:
+    container_name: torrent
     image: qbittorrentofficial/qbittorrent-nox:5.1.4-2
-    restart: always
+    restart: unless-stopped
     network_mode: host
     volumes:
       - ./volumes/qbittorrent/config:/config
