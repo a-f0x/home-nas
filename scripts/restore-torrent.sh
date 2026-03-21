@@ -34,7 +34,7 @@ set +a
 # Настройки (из .env)
 # =====================================================
 QBITTORRENT_BACKUP_DIR="${BACKUP_BASE}/qbittorrent"
-QBITTORRENT_CONTAINER="torrent"
+QBITTORRENT_CONTAINER="qbittorrent"
 
 # 🔥 Путь к конфигам (с дефолтным значением)
 QBITTORRENT_CONFIG_PATH="${QBITTORRENT_CONFIG_PATH:-./volumes/qbittorrent/config}"

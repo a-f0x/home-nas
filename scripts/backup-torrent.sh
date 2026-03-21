@@ -34,7 +34,7 @@ set +a
 # Настройки (из .env)
 # =====================================================
 QBITTORRENT_BACKUP_DIR="${BACKUP_BASE}/qbittorrent"
-QBITTORRENT_CONTAINER="torrent"
+QBITTORRENT_CONTAINER="qbittorrent"
 RETENTION_DAYS=7
 
 BACKUP_DIR="${QBITTORRENT_BACKUP_DIR}/$(date +%F)"
