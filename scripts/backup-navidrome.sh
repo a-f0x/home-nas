@@ -1,0 +1,111 @@
+#!/bin/bash
+# backup-navidrome.sh — Бекап Navidrome (только БД и конфиги, без музыки)
+
+# =====================================================
+# Проверка прав root (авто-перезапуск с sudo)
+# =====================================================
+if [ "$EUID" -ne 0 ]; then
+    echo "⚠️  Требуется доступ root. Перезапуск через sudo..."
+    exec sudo "$0" "$@"
+fi
+
+set -e
+
+# =====================================================
+# Загрузка .env (динамический поиск)
+# =====================================================
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/../.env"
+
+if [ ! -f "$ENV_FILE" ]; then
+    ENV_FILE="./.env"
+fi
+
+if [ ! -f "$ENV_FILE" ]; then
+    echo "❌ Ошибка: Файл .env не найден"
+    exit 1
+fi
+
+set -a
+source "$ENV_FILE"
+set +a
+
+# =====================================================
+# Настройки (из .env)
+# =====================================================
+NAVIDROME_BACKUP_DIR="${BACKUP_BASE}/navidrome"
+NAVIDROME_CONTAINER="navidrome"
+RETENTION_DAYS=7
+
+BACKUP_DIR="${NAVIDROME_BACKUP_DIR}/$(date +%F)"
+DATA_BACKUP_DIR="${BACKUP_DIR}/data"
+LOG_FILE="${NAVIDROME_BACKUP_DIR}/backup.log"
+
+# Путь к данным из .env (по умолчанию)
+NAVIDROME_DATA_PATH="./volumes/navidrome/data"
+
+# =====================================================
+# Функции
+# =====================================================
+log() {
+    echo "[$(date '+%F %T')] $1" | tee -a "$LOG_FILE"
+}
+
+error_exit() {
+    log "❌ ОШИБКА: $1"
+    docker compose start "$NAVIDROME_CONTAINER" 2>/dev/null || true
+    exit 1
+}
+
+# =====================================================
+# Основной процесс
+# =====================================================
+log "🚀 Начало бекапа Navidrome"
+log "📁 .env файл: ${ENV_FILE}"
+log "📁 Путь бекапа: ${NAVIDROME_BACKUP_DIR}"
+log "📁 Navidrome data: ${NAVIDROME_DATA_PATH}"
+
+# 1. Остановить Navidrome (для консистентности SQLite БД)
+log "🛑 Остановка контейнера $NAVIDROME_CONTAINER..."
+docker compose stop "$NAVIDROME_CONTAINER" || error_exit "Не удалось остановить Navidrome"
+log "✅ Navidrome остановлен"
+
+# 2. Создать директории для бекапа
+log "📁 Создание директорий для бекапа..."
+mkdir -p "$DATA_BACKUP_DIR" || error_exit "Не удалось создать директорию"
+
+# 3. Бекап данных (БД SQLite + конфиги + кэш)
+# ❗ Музыка НЕ бэкапится (она смонтирована отдельно и может быть просканирована заново)
+log "📁 Копирование данных (БД + конфиги)..."
+rsync -av --delete \
+    "${NAVIDROME_DATA_PATH}/" \
+    "${DATA_BACKUP_DIR}/" || error_exit "Не удалось скопировать данные"
+
+DATA_SIZE=$(du -sh "${DATA_BACKUP_DIR}" | cut -f1)
+log "✅ Данные скопированы: ${DATA_SIZE}"
+
+# 4. Запустить Navidrome обратно
+log "▶️ Запуск контейнера $NAVIDROME_CONTAINER..."
+docker compose start "$NAVIDROME_CONTAINER" || error_exit "Не удалось запустить Navidrome"
+log "✅ Navidrome запущен"
+
+# 5. Ротация: удалить старые бекапы
+log "🗑️ Удаление бекапов старше ${RETENTION_DAYS} дней..."
+DELETED_COUNT=$(find "${NAVIDROME_BACKUP_DIR}" -maxdepth 1 -type d -name "20*" -mtime +${RETENTION_DAYS} | wc -l)
+find "${NAVIDROME_BACKUP_DIR}" -maxdepth 1 -type d -name "20*" -mtime +${RETENTION_DAYS} -exec rm -rf {} \;
+log "✅ Удалено старых бекапов: ${DELETED_COUNT}"
+
+# 6. Финал
+log "🎉 Бекап Navidrome завершён успешно!"
+log "📍 Путь: ${BACKUP_DIR}"
+
+echo ""
+echo "=========================================="
+echo "📊 Сводка бекапа"
+echo "=========================================="
+echo "Дата: $(date +%F)"
+echo "Данные: ${DATA_SIZE}"
+echo "Хранение: ${RETENTION_DAYS} дней"
+echo "Путь: ${BACKUP_DIR}"
+echo "🎵 Музыка не бэкапилась (монтируется отдельно)"
+echo "=========================================="
