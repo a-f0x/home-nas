@@ -41,13 +41,14 @@ BACKUP_DIR="${NAVIDROME_BACKUP_DIR}/$(date +%F)"
 DATA_BACKUP_DIR="${BACKUP_DIR}/data"
 LOG_FILE="${NAVIDROME_BACKUP_DIR}/backup.log"
 
-# 🔥 Преобразуем относительный путь в абсолютный
+# 🔥 Путь к данным (с дефолтным значением)
+NAVIDROME_DATA_PATH="${NAVIDROME_DATA_PATH:-./volumes/navidrome/data}"
+
+# 🔥 Преобразуем в абсолютный путь
 PROJECT_DIR="$(dirname "$ENV_FILE")"
 if [[ "$NAVIDROME_DATA_PATH" == /* ]]; then
-    # Уже абсолютный путь
     NAVIDROME_DATA_PATH_ABS="$NAVIDROME_DATA_PATH"
 else
-    # Относительный путь — преобразуем в абсолютный относительно проекта
     NAVIDROME_DATA_PATH_ABS="$(cd "$PROJECT_DIR" && realpath -m "$NAVIDROME_DATA_PATH")"
 fi
 
@@ -77,7 +78,7 @@ if [ ! -d "$NAVIDROME_DATA_PATH_ABS" ]; then
     error_exit "Директория данных не найдена: $NAVIDROME_DATA_PATH_ABS"
 fi
 
-# 1. Остановить Navidrome (для консистентности SQLite БД)
+# 1. Остановить Navidrome
 log "🛑 Остановка контейнера $NAVIDROME_CONTAINER..."
 docker compose stop "$NAVIDROME_CONTAINER" || error_exit "Не удалось остановить Navidrome"
 log "✅ Navidrome остановлен"
@@ -86,7 +87,7 @@ log "✅ Navidrome остановлен"
 log "📁 Создание директорий для бекапа..."
 mkdir -p "$DATA_BACKUP_DIR" || error_exit "Не удалось создать директорию"
 
-# 3. Бекап данных (БД SQLite + конфиги + кэш)
+# 3. Бекап данных
 log "📁 Копирование данных (БД + конфиги)..."
 rsync -av --delete \
     "${NAVIDROME_DATA_PATH_ABS}/" \
@@ -100,7 +101,7 @@ log "▶️ Запуск контейнера $NAVIDROME_CONTAINER..."
 docker compose start "$NAVIDROME_CONTAINER" || error_exit "Не удалось запустить Navidrome"
 log "✅ Navidrome запущен"
 
-# 5. Ротация: удалить старые бекапы
+# 5. Ротация
 log "🗑️ Удаление бекапов старше ${RETENTION_DAYS} дней..."
 DELETED_COUNT=$(find "${NAVIDROME_BACKUP_DIR}" -maxdepth 1 -type d -name "20*" -mtime +${RETENTION_DAYS} | wc -l)
 find "${NAVIDROME_BACKUP_DIR}" -maxdepth 1 -type d -name "20*" -mtime +${RETENTION_DAYS} -exec rm -rf {} \;
