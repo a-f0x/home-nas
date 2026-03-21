@@ -1,9 +1,9 @@
 #!/bin/bash
-# backup-seafile.sh — Бекап Seafile
+# backup-seafile.sh — Бекап Seafile (консистентный, с остановкой контейнера)
 set -e
 
 # =====================================================
-# Загрузка .env
+# Загрузка .env (из текущей директории)
 # =====================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/../.env"
@@ -53,44 +53,28 @@ error_exit() {
 # =====================================================
 log "🚀 Начало бекапа Seafile"
 
-# 1. Остановить Seafile
+# 1. Остановить Seafile (для консистентности БД и файлов)
 log "🛑 Остановка контейнера $SEAFILE_CONTAINER..."
 docker compose stop "$SEAFILE_CONTAINER" || error_exit "Не удалось остановить Seafile"
 log "✅ Seafile остановлен"
 
-# 2. Создать директории
+# 2. Создать директории для бекапа
 log "📁 Создание директорий для бекапа..."
 mkdir -p "$DB_BACKUP_DIR" "$DATA_BACKUP_DIR" || error_exit "Не удалось создать директории"
 
-# 3. Дамп баз данных (ИСПРАВЛЕНО: конфиг на хосте → copy в контейнер)
+# 3. Дамп баз данных (ИСПРАВЛЕНО: --databases + пароль через -p)
 log "🗄️ Дамп баз данных (ccnet_db, seafile_db, seahub_db)..."
 
-# Создаём временный конфиг НА ХОСТЕ
-MYSQL_CONFIG_FILE=$(mktemp)
-cat > "$MYSQL_CONFIG_FILE" <<EOF
-[client]
-user=root
-password=${MYSQL_ROOT_PASSWORD}
-EOF
-chmod 600 "$MYSQL_CONFIG_FILE"
-
-# Копируем конфиг В контейнер
-docker cp "$MYSQL_CONFIG_FILE" "${DB_CONTAINER}:/tmp/backup.cnf" || error_exit "Не удалось скопировать конфиг в контейнер"
-
-# Делаем дамп с использованием конфига
 docker exec "$DB_CONTAINER" /usr/bin/mariadb-dump \
-    --defaults-extra-file=/tmp/backup.cnf \
-    ccnet_db seafile_db seahub_db | gzip \
+    -u root \
+    -p"${MYSQL_ROOT_PASSWORD}" \
+    --databases ccnet_db seafile_db seahub_db | gzip \
     > "${DB_BACKUP_DIR}/seafile-$(date +%F).sql.gz" || error_exit "Не удалось создать дамп БД"
-
-# Чистим конфиг в контейнере и на хосте
-docker exec "$DB_CONTAINER" rm -f /tmp/backup.cnf
-rm -f "$MYSQL_CONFIG_FILE"
 
 DB_SIZE=$(du -h "${DB_BACKUP_DIR}/seafile-$(date +%F).sql.gz" | cut -f1)
 log "✅ Дамп создан: ${DB_SIZE}"
 
-# 4. Бекап файлов
+# 4. Бекап файловых данных
 log "📁 Копирование файловых данных (rsync)..."
 rsync -av --delete \
     "${SEAFILE_VOLUME_PATH}/" \
@@ -99,12 +83,12 @@ rsync -av --delete \
 DATA_SIZE=$(du -sh "${DATA_BACKUP_DIR}" | cut -f1)
 log "✅ Файлы скопированы: ${DATA_SIZE}"
 
-# 5. Запустить Seafile
+# 5. Запустить Seafile обратно
 log "▶️ Запуск контейнера $SEAFILE_CONTAINER..."
 docker compose start "$SEAFILE_CONTAINER" || error_exit "Не удалось запустить Seafile"
 log "✅ Seafile запущен"
 
-# 6. Ротация
+# 6. Ротация: удалить старые бекапы
 log "🗑️ Удаление бекапов старше ${RETENTION_DAYS} дней..."
 DELETED_COUNT=$(find "${BACKUP_BASE}" -maxdepth 1 -type d -name "20*" -mtime +${RETENTION_DAYS} | wc -l)
 find "${BACKUP_BASE}" -maxdepth 1 -type d -name "20*" -mtime +${RETENTION_DAYS} -exec rm -rf {} \;
