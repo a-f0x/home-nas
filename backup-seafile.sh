@@ -8,8 +8,7 @@ set -e  # Выход при любой ошибке
 # Загрузка переменных окружения
 # =====================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-ENV_FILE="${PROJECT_DIR}/.env"
+ENV_FILE=".env"
 
 # Проверка существования .env
 if [ ! -f "$ENV_FILE" ]; then
