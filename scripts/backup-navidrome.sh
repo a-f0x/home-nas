@@ -42,7 +42,7 @@ DATA_BACKUP_DIR="${BACKUP_DIR}/data"
 LOG_FILE="${NAVIDROME_BACKUP_DIR}/backup.log"
 
 # 🔥 Путь к данным (с дефолтным значением)
-NAVIDROME_DATA_PATH="${NAVIDROME_DATA_PATH:-./volumes/navidrome/data}"
+NAVIDROME_DATA_PATH="${NAVIDROME_DATA_PATH}"
 
 # 🔥 Преобразуем в абсолютный путь
 PROJECT_DIR="$(dirname "$ENV_FILE")"

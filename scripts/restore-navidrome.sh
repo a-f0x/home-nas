@@ -38,17 +38,12 @@ NAVIDROME_BACKUP_DIR="${BACKUP_BASE}/navidrome"
 NAVIDROME_CONTAINER="navidrome"
 NAVIDROME_DATA_PATH="./volumes/navidrome/data"
 
-# 🔥 Преобразуем относительный путь в абсолютный
-PROJECT_DIR="$(dirname "$ENV_FILE")"
+ROJECT_DIR="$(dirname "$ENV_FILE")"
 if [[ "$NAVIDROME_DATA_PATH" == /* ]]; then
-    # Уже абсолютный путь
     NAVIDROME_DATA_PATH_ABS="$NAVIDROME_DATA_PATH"
 else
-    # Относительный путь — преобразуем в абсолютный относительно проекта
     NAVIDROME_DATA_PATH_ABS="$(cd "$PROJECT_DIR" && realpath -m "$NAVIDROME_DATA_PATH")"
 fi
-
-
 
 # =====================================================
 # Функции
