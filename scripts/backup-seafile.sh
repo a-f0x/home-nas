@@ -3,15 +3,17 @@
 set -e
 
 # =====================================================
-# Загрузка .env (из текущей директории)
+# Загрузка .env (динамический поиск)
 # =====================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/../.env"
 
+# Если не нашли в parent, ищем в текущей рабочей директории
 if [ ! -f "$ENV_FILE" ]; then
     ENV_FILE="./.env"
 fi
 
+# Проверка существования .env
 if [ ! -f "$ENV_FILE" ]; then
     echo "❌ Ошибка: Файл .env не найден"
     exit 1
@@ -22,17 +24,18 @@ source "$ENV_FILE"
 set +a
 
 # =====================================================
-# Настройки
+# Настройки (из .env)
 # =====================================================
-BACKUP_BASE="${BACKUP_BASE}/seafile"
+# BACKUP_BASE берётся из .env (например: /mnt/media/volume-b/backup)
+SEAFILE_BACKUP_DIR="${BACKUP_BASE}/seafile"
 DB_CONTAINER="mariadb"
 SEAFILE_CONTAINER="seafile"
 RETENTION_DAYS=7
 
-BACKUP_DIR="${BACKUP_BASE}/$(date +%F)"
+BACKUP_DIR="${SEAFILE_BACKUP_DIR}/$(date +%F)"
 DB_BACKUP_DIR="${BACKUP_DIR}/db"
 DATA_BACKUP_DIR="${BACKUP_DIR}/data"
-LOG_FILE="${BACKUP_BASE}/backup.log"
+LOG_FILE="${SEAFILE_BACKUP_DIR}/backup.log"
 SEAFILE_VOLUME_PATH="${SEAFILE_VOLUME:-./volumes/seafile-data}"
 
 # =====================================================
@@ -52,6 +55,8 @@ error_exit() {
 # Основной процесс
 # =====================================================
 log "🚀 Начало бекапа Seafile"
+log "📁 .env файл: ${ENV_FILE}"
+log "📁 Путь бекапа: ${SEAFILE_BACKUP_DIR}"
 
 # 1. Остановить Seafile (для консистентности БД и файлов)
 log "🛑 Остановка контейнера $SEAFILE_CONTAINER..."
@@ -62,7 +67,7 @@ log "✅ Seafile остановлен"
 log "📁 Создание директорий для бекапа..."
 mkdir -p "$DB_BACKUP_DIR" "$DATA_BACKUP_DIR" || error_exit "Не удалось создать директории"
 
-# 3. Дамп баз данных (ИСПРАВЛЕНО: --databases + пароль через -p)
+# 3. Дамп баз данных (--databases для корректного дампа нескольких БД)
 log "🗄️ Дамп баз данных (ccnet_db, seafile_db, seahub_db)..."
 
 docker exec "$DB_CONTAINER" /usr/bin/mariadb-dump \
@@ -76,11 +81,10 @@ log "✅ Дамп создан: ${DB_SIZE}"
 
 # 4. Бекап файловых данных
 log "📁 Копирование файловых данных (rsync)..."
-docker run --rm \
-    -v "${SEAFILE_VOLUME}:/source:ro" \
-    -v "${DATA_BACKUP_DIR}:/backup" \
-    alpine:3.21 \
-    rsync -av --delete /source/ /backup/ || error_exit "Не удалось синхронизировать файлы"
+rsync -av --delete \
+    "${SEAFILE_VOLUME_PATH}/" \
+    "${DATA_BACKUP_DIR}/" || error_exit "Не удалось синхронизировать файлы"
+
 DATA_SIZE=$(du -sh "${DATA_BACKUP_DIR}" | cut -f1)
 log "✅ Файлы скопированы: ${DATA_SIZE}"
 
@@ -91,8 +95,8 @@ log "✅ Seafile запущен"
 
 # 6. Ротация: удалить старые бекапы
 log "🗑️ Удаление бекапов старше ${RETENTION_DAYS} дней..."
-DELETED_COUNT=$(find "${BACKUP_BASE}" -maxdepth 1 -type d -name "20*" -mtime +${RETENTION_DAYS} | wc -l)
-find "${BACKUP_BASE}" -maxdepth 1 -type d -name "20*" -mtime +${RETENTION_DAYS} -exec rm -rf {} \;
+DELETED_COUNT=$(find "${SEAFILE_BACKUP_DIR}" -maxdepth 1 -type d -name "20*" -mtime +${RETENTION_DAYS} | wc -l)
+find "${SEAFILE_BACKUP_DIR}" -maxdepth 1 -type d -name "20*" -mtime +${RETENTION_DAYS} -exec rm -rf {} \;
 log "✅ Удалено старых бекапов: ${DELETED_COUNT}"
 
 # 7. Финал
