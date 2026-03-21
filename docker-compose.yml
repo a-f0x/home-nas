@@ -46,19 +46,6 @@ services:
       start_period: 30s
       timeout: 5s
       retries: 10
-#  mariadb-backup:
-#    image: fradelg/mysql-cron-backup:1.14.2
-#    depends_on:
-#      - mariadb
-#    volumes:
-#      - ./mnt/media/volume-b/backup/seafile/db:/backup
-#    environment:
-#      - MYSQL_HOST=db
-#      - MYSQL_USER=root
-#      - MYSQL_PASS=${MYSQL_ROOT_PASSWORD:-}
-#      - CRON_TIME=0 3 * * *  # Ежедневно в 03:00
-#      - MAX_BACKUPS=15       # Хранить последние 15 копий
-
 
   # =====================================================
   # Redis
