@@ -17,6 +17,7 @@ services:
       - ./volumes/traefik/acme.json:/acme.json        # Сертификаты Let's Encrypt
     environment:
       - TZ=${TIME_ZONE}
+      - DOCKER_API_VERSION=1.44
 
   # =====================================================
   # MairaDb
