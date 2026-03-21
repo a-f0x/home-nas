@@ -42,7 +42,7 @@ BACKUP_DIR="${SEAFILE_BACKUP_DIR}/$(date +%F)"
 DB_BACKUP_DIR="${BACKUP_DIR}/db"
 DATA_BACKUP_DIR="${BACKUP_DIR}/data"
 LOG_FILE="${SEAFILE_BACKUP_DIR}/backup.log"
-SEAFILE_VOLUME_PATH="${SEAFILE_VOLUME:-./volumes/seafile-data}"
+SEAFILE_VOLUME_PATH="${SEAFILE_VOLUME}"
 
 # =====================================================
 # Функции

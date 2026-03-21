@@ -1,6 +1,5 @@
 #!/bin/bash
 # restore-seafile.sh — Восстановление Seafile из бекапа
-# Восстанавливает БД и файлы из выбранной даты
 
 # =====================================================
 # Проверка прав root (авто-перезапуск с sudo)
@@ -37,6 +36,13 @@ set +a
 SEAFILE_BACKUP_DIR="${BACKUP_BASE}/seafile"
 DB_CONTAINER="mariadb"
 SEAFILE_CONTAINER="seafile"
+SEAFILE_VOLUME_PATH="${SEAFILE_VOLUME}"
+
+# Проверка, что SEAFILE_VOLUME задана
+if [ -z "$SEAFILE_VOLUME_PATH" ]; then
+    echo "❌ Ошибка: Переменная SEAFILE_VOLUME не задана в .env"
+    exit 1
+fi
 
 # =====================================================
 # Функции
@@ -51,7 +57,6 @@ error_exit() {
     exit 1
 }
 
-# Показать доступные бекапы
 list_backups() {
     echo ""
     echo "📋 Доступные бекапы:"
@@ -89,6 +94,7 @@ list_backups() {
 log "🚀 Восстановление Seafile из бекапа"
 log "📁 .env файл: ${ENV_FILE}"
 log "📁 Путь бекапов: ${SEAFILE_BACKUP_DIR}"
+log "📁 Seafile volume: ${SEAFILE_VOLUME_PATH}"
 
 # Проверка наличия бекапов
 if [ ! -d "$SEAFILE_BACKUP_DIR" ]; then
@@ -98,11 +104,10 @@ fi
 # Показать доступные бекапы
 list_backups
 
-# Получить дату для восстановления (аргумент или интерактивно)
+# Получить дату для восстановления
 RESTORE_DATE="$1"
 
 if [ -z "$RESTORE_DATE" ]; then
-    # Интерактивный выбор
     echo "Введите дату для восстановления (YYYY-MM-DD) или 'q' для выхода:"
     read -r RESTORE_DATE
 
@@ -155,7 +160,6 @@ log "✅ Seafile остановлен"
 # 1. Восстановление БД
 log "🗄️ Восстановление баз данных..."
 
-# Создаём временный конфиг с паролем
 MYSQL_CONFIG_FILE=$(mktemp)
 cat > "$MYSQL_CONFIG_FILE" <<EOF
 [client]
@@ -164,14 +168,11 @@ password=${MYSQL_ROOT_PASSWORD}
 EOF
 chmod 600 "$MYSQL_CONFIG_FILE"
 
-# Копируем в контейнер
 docker cp "$MYSQL_CONFIG_FILE" "${DB_CONTAINER}:/tmp/restore.cnf"
 
-# Восстанавливаем дамп
 gunzip -c "$DB_BACKUP_FILE" | docker exec -i "$DB_CONTAINER" /usr/bin/mariadb \
     --defaults-extra-file=/tmp/restore.cnf || error_exit "Не удалось восстановить БД"
 
-# Чистим конфиг
 docker exec "$DB_CONTAINER" rm -f /tmp/restore.cnf
 rm -f "$MYSQL_CONFIG_FILE"
 
@@ -179,12 +180,10 @@ log "✅ БД восстановлена"
 
 # 2. Восстановление файлов
 log "📁 Восстановление файловых данных (rsync)..."
-
-# Очищаем текущие данные перед восстановлением
 log "🗑️ Очистка текущих данных..."
+
 rm -rf "${SEAFILE_VOLUME_PATH:?}"/*
 
-# Копируем из бекапа
 rsync -av --delete \
     "${DATA_BACKUP_DIR}/" \
     "${SEAFILE_VOLUME_PATH}/" || error_exit "Не удалось восстановить файлы"
@@ -200,7 +199,6 @@ log "✅ Seafile запущен"
 log "⏳ Ожидание запуска Seafile (30 сек)..."
 sleep 30
 
-# Проверка, что контейнер работает
 if docker compose ps | grep -q "seafile.*Up"; then
     log "✅ Seafile работает"
 else
