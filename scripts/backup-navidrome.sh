@@ -1,5 +1,5 @@
 #!/bin/bash
-# backup-navidrome.sh — Бекап Navidrome (только БД и конфиги, без музыки)
+# backup-navidrome.sh — Бекап Navidrome (только БД + конфиги, без музыки)
 
 # =====================================================
 # Проверка прав root (авто-перезапуск с sudo)
@@ -41,8 +41,15 @@ BACKUP_DIR="${NAVIDROME_BACKUP_DIR}/$(date +%F)"
 DATA_BACKUP_DIR="${BACKUP_DIR}/data"
 LOG_FILE="${NAVIDROME_BACKUP_DIR}/backup.log"
 
-# Путь к данным из .env (по умолчанию)
-NAVIDROME_DATA_PATH="./volumes/navidrome/data"
+# 🔥 Преобразуем относительный путь в абсолютный
+PROJECT_DIR="$(dirname "$ENV_FILE")"
+if [[ "$NAVIDROME_DATA_PATH" == /* ]]; then
+    # Уже абсолютный путь
+    NAVIDROME_DATA_PATH_ABS="$NAVIDROME_DATA_PATH"
+else
+    # Относительный путь — преобразуем в абсолютный относительно проекта
+    NAVIDROME_DATA_PATH_ABS="$(cd "$PROJECT_DIR" && realpath -m "$NAVIDROME_DATA_PATH")"
+fi
 
 # =====================================================
 # Функции
@@ -63,7 +70,12 @@ error_exit() {
 log "🚀 Начало бекапа Navidrome"
 log "📁 .env файл: ${ENV_FILE}"
 log "📁 Путь бекапа: ${NAVIDROME_BACKUP_DIR}"
-log "📁 Navidrome data: ${NAVIDROME_DATA_PATH}"
+log "📁 Navidrome data: ${NAVIDROME_DATA_PATH_ABS}"
+
+# Проверка, что директория существует
+if [ ! -d "$NAVIDROME_DATA_PATH_ABS" ]; then
+    error_exit "Директория данных не найдена: $NAVIDROME_DATA_PATH_ABS"
+fi
 
 # 1. Остановить Navidrome (для консистентности SQLite БД)
 log "🛑 Остановка контейнера $NAVIDROME_CONTAINER..."
@@ -75,10 +87,9 @@ log "📁 Создание директорий для бекапа..."
 mkdir -p "$DATA_BACKUP_DIR" || error_exit "Не удалось создать директорию"
 
 # 3. Бекап данных (БД SQLite + конфиги + кэш)
-# ❗ Музыка НЕ бэкапится (она смонтирована отдельно и может быть просканирована заново)
 log "📁 Копирование данных (БД + конфиги)..."
 rsync -av --delete \
-    "${NAVIDROME_DATA_PATH}/" \
+    "${NAVIDROME_DATA_PATH_ABS}/" \
     "${DATA_BACKUP_DIR}/" || error_exit "Не удалось скопировать данные"
 
 DATA_SIZE=$(du -sh "${DATA_BACKUP_DIR}" | cut -f1)
