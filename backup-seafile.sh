@@ -8,7 +8,8 @@ set -e  # Выход при любой ошибке
 # Загрузка переменных окружения
 # =====================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE=".env"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+ENV_FILE="${PROJECT_DIR}/.env"
 
 # Проверка существования .env
 if [ ! -f "$ENV_FILE" ]; then
@@ -68,12 +69,25 @@ log "✅ Seafile остановлен"
 log "📁 Создание директорий для бекапа..."
 mkdir -p "$DB_BACKUP_DIR" "$DATA_BACKUP_DIR" || error_exit "Не удалось создать директории"
 
-# 3. Дамп баз данных
+# 3. Дамп баз данных (ИСПРАВЛЕНО: через --defaults-extra-file)
 log "🗄️ Дамп баз данных (ccnet_db, seafile_db, seahub_db)..."
+
+# Создаём временный конфиг с паролем внутри контейнера
+docker exec "$DB_CONTAINER" /bin/sh -c "cat > /tmp/backup.cnf <<EOF
+[client]
+user=root
+password=${MYSQL_ROOT_PASSWORD}
+EOF
+chmod 600 /tmp/backup.cnf"
+
+# Используем --defaults-extra-file вместо -p
 docker exec "$DB_CONTAINER" /usr/bin/mariadb-dump \
-    -u root -p"${MYSQL_ROOT_PASSWORD}" \
+    --defaults-extra-file=/tmp/backup.cnf \
     ccnet_db seafile_db seahub_db | gzip \
     > "${DB_BACKUP_DIR}/seafile-$(date +%F).sql.gz" || error_exit "Не удалось создать дамп БД"
+
+# Чистим временный файл в контейнере
+docker exec "$DB_CONTAINER" rm -f /tmp/backup.cnf
 
 DB_SIZE=$(du -h "${DB_BACKUP_DIR}/seafile-$(date +%F).sql.gz" | cut -f1)
 log "✅ Дамп создан: ${DB_SIZE}"
