@@ -24,7 +24,7 @@ set +a
 # =====================================================
 # Настройки
 # =====================================================
-BACKUP_BASE=${BACKUP_BASE}
+BACKUP_BASE="${BACKUP_BASE}/seafile"
 DB_CONTAINER="mariadb"
 SEAFILE_CONTAINER="seafile"
 RETENTION_DAYS=7
