@@ -1,7 +1,4 @@
 services:
-  # =====================================================
-  # Traefik - Reverse Proxy с автоматическим HTTPS
-  # =====================================================
   traefik:
     image: traefik:v3.6.11
     restart: unless-stopped
@@ -16,10 +13,6 @@ services:
       - ./volumes/traefik/acme.json:/acme.json        # Сертификаты Let's Encrypt
     environment:
       - TZ=${TIME_ZONE}
-
-  # =====================================================
-  # MairaDb
-  # =====================================================
   db:
     image: mariadb:10.11.16
     restart: unless-stopped
@@ -45,10 +38,6 @@ services:
       start_period: 30s
       timeout: 5s
       retries: 10
-
-  # =====================================================
-  # Redis
-  # =====================================================
   redis:
     container_name: redis
     image: redis:8.6.1
@@ -60,15 +49,10 @@ services:
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
 
-  # =====================================================
-  # Seafile
-  # =====================================================
   seafile:
     image: seafileltd/seafile-mc:13.0.19
     container_name: seafile
     restart: unless-stopped
-#    ports:
-#      - "8081:80"
     volumes:
       - ${SEAFILE_VOLUME}:/shared
     environment:
@@ -132,16 +116,10 @@ services:
       - "traefik.http.middlewares.seafile-headers.headers.stsPreload=true"
       - "traefik.http.middlewares.seafile-headers.headers.customFrameOptionsValue=SAMEORIGIN"
 
-
-  # =====================================================
-  # Navidrome - Музыкальный стриминг-сервер
-  # =====================================================
   navidrome:
     image: deluan/navidrome:0.60.3
     container_name: navidrome
     restart: unless-stopped
-#    ports:
-#      - "${NAVIDROME_LOCAL_PORT:-4533}:4533"   # Доступ в локальной сети
     depends_on:
       - traefik
     volumes:
@@ -157,9 +135,6 @@ services:
       - "traefik.http.routers.navidrome.tls.certresolver=letsencrypt"
       - "traefik.http.services.navidrome.loadbalancer.server.port=4533"
 
-  # =====================================================
-  # qBittorrent - Торрент-клиент
-  # =====================================================
   qbittorrent:
     container_name: torrent
     image: qbittorrentofficial/qbittorrent-nox:5.1.4-2
