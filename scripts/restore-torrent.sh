@@ -34,7 +34,7 @@ set +a
 # Настройки (из .env)
 # =====================================================
 QBITTORRENT_BACKUP_DIR="${BACKUP_BASE}/qbittorrent"
-QBITTORRENT_CONTAINER="qbittorrent"
+QBITTORRENT_CONTAINER="torrent"
 
 # 🔥 Путь к конфигам (с дефолтным значением)
 QBITTORRENT_CONFIG_PATH="${QBITTORRENT_CONFIG_PATH:-./volumes/qbittorrent/config}"
@@ -71,7 +71,8 @@ list_backups() {
 
             if [ -d "$CONFIG_DIR" ]; then
                 CONFIG_SIZE=$(du -sh "$CONFIG_DIR" | cut -f1)
-                CONF_FILE="$CONFIG_DIR/qBittorrent/qBittorrent.conf"
+                # 🔥 Правильный путь к конфигу
+                CONF_FILE="$CONFIG_DIR/qBittorrent/config/qBittorrent.conf"
                 if [ -f "$CONF_FILE" ]; then
                     echo "  $DATE  |  Конфиг: ✅  |  Всего: $CONFIG_SIZE"
                 else
@@ -126,10 +127,10 @@ if [ ! -d "$CONFIG_BACKUP_DIR" ]; then
     error_exit "Конфиги не найдены: $CONFIG_BACKUP_DIR"
 fi
 
-# Проверка наличия главного конфига
-CONF_FILE="$CONFIG_BACKUP_DIR/qBittorrent/qBittorrent.conf"
+# 🔥 Проверка конфига по правильному пути
+CONF_FILE="$CONFIG_BACKUP_DIR/qBittorrent/config/qBittorrent.conf"
 if [ ! -f "$CONF_FILE" ]; then
-    error_exit "Файл qBittorrent.conf не найден в бекапе"
+    error_exit "Файл qBittorrent.conf не найден: $CONF_FILE"
 fi
 
 echo ""
