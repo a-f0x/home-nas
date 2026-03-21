@@ -4,7 +4,7 @@ services:
   # Traefik - Reverse Proxy с автоматическим HTTPS
   # =====================================================
   traefik:
-    image: traefik:v3.2
+    image: traefik:v6.11
     restart: unless-stopped
     container_name: traefik
     ports:
@@ -17,7 +17,6 @@ services:
       - ./volumes/traefik/acme.json:/acme.json        # Сертификаты Let's Encrypt
     environment:
       - TZ=${TIME_ZONE}
-      - DOCKER_API_VERSION=1.44
 
   # =====================================================
   # MairaDb
