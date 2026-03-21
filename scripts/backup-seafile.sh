@@ -8,16 +8,20 @@ set -e  # Выход при любой ошибке
 # Загрузка переменных окружения
 # =====================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-ENV_FILE="${PROJECT_DIR}/.env"
+ENV_FILE="${SCRIPT_DIR}/../.env"
+
+# Если не нашли в parent, ищем в текущей рабочей директории
+if [ ! -f "$ENV_FILE" ]; then
+    ENV_FILE="./.env"
+fi
 
 # Проверка существования .env
 if [ ! -f "$ENV_FILE" ]; then
-    echo "❌ Ошибка: Файл .env не найден: $ENV_FILE"
+    echo "❌ Ошибка: Файл .env не найден"
     exit 1
 fi
 
-# Загрузка переменных из .env (игнорируя комментарии и пустые строки)
+# Загрузка переменных из .env
 set -a
 source "$ENV_FILE"
 set +a
@@ -28,7 +32,7 @@ set +a
 BACKUP_BASE="/mnt/media/volume-b/backup/seafile"
 DB_CONTAINER="mariadb"
 SEAFILE_CONTAINER="seafile"
-RETENTION_DAYS=7  # Хранить последние 7 дней
+RETENTION_DAYS=7
 
 # Директории
 BACKUP_DIR="${BACKUP_BASE}/$(date +%F)"
@@ -48,7 +52,6 @@ log() {
 
 error_exit() {
     log "❌ ОШИБКА: $1"
-    # Пытаемся запустить Seafile обратно перед выходом
     docker compose start "$SEAFILE_CONTAINER" 2>/dev/null || true
     exit 1
 }
@@ -57,7 +60,7 @@ error_exit() {
 # Основной процесс
 # =====================================================
 log "🚀 Начало бекапа Seafile"
-log "📁 Проект: ${PROJECT_DIR}"
+log "📁 .env файл: ${ENV_FILE}"
 log "📁 Seafile volume: ${SEAFILE_VOLUME_PATH}"
 
 # 1. Остановить Seafile
@@ -69,7 +72,7 @@ log "✅ Seafile остановлен"
 log "📁 Создание директорий для бекапа..."
 mkdir -p "$DB_BACKUP_DIR" "$DATA_BACKUP_DIR" || error_exit "Не удалось создать директории"
 
-# 3. Дамп баз данных (ИСПРАВЛЕНО: через --defaults-extra-file)
+# 3. Дамп баз данных (через --defaults-extra-file)
 log "🗄️ Дамп баз данных (ccnet_db, seafile_db, seahub_db)..."
 
 # Создаём временный конфиг с паролем внутри контейнера
