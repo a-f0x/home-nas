@@ -76,10 +76,11 @@ log "✅ Дамп создан: ${DB_SIZE}"
 
 # 4. Бекап файловых данных
 log "📁 Копирование файловых данных (rsync)..."
-rsync -av --delete \
-    "${SEAFILE_VOLUME_PATH}/" \
-    "${DATA_BACKUP_DIR}/" || error_exit "Не удалось синхронизировать файлы"
-
+docker run --rm \
+    -v "${SEAFILE_VOLUME}:/source:ro" \
+    -v "${DATA_BACKUP_DIR}:/backup" \
+    alpine:3.21 \
+    rsync -av --delete /source/ /backup/ || error_exit "Не удалось синхронизировать файлы"
 DATA_SIZE=$(du -sh "${DATA_BACKUP_DIR}" | cut -f1)
 log "✅ Файлы скопированы: ${DATA_SIZE}"
 
