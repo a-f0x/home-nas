@@ -1,6 +1,5 @@
 #!/bin/bash
 # restore-navidrome.sh — Восстановление Navidrome из бекапа
-# Восстанавливает только БД + конфиги (музыка не затрагивается)
 
 # =====================================================
 # Проверка прав root (авто-перезапуск с sudo)
@@ -36,9 +35,12 @@ set +a
 # =====================================================
 NAVIDROME_BACKUP_DIR="${BACKUP_BASE}/navidrome"
 NAVIDROME_CONTAINER="navidrome"
-NAVIDROME_DATA_PATH="./volumes/navidrome/data"
 
-ROJECT_DIR="$(dirname "$ENV_FILE")"
+# 🔥 Путь к данным (с дефолтным значением)
+NAVIDROME_DATA_PATH="${NAVIDROME_DATA_PATH}"
+
+# 🔥 Преобразуем в абсолютный путь относительно .env
+PROJECT_DIR="$(dirname "$ENV_FILE")"
 if [[ "$NAVIDROME_DATA_PATH" == /* ]]; then
     NAVIDROME_DATA_PATH_ABS="$NAVIDROME_DATA_PATH"
 else
@@ -58,7 +60,6 @@ error_exit() {
     exit 1
 }
 
-# Показать доступные бекапы
 list_backups() {
     echo ""
     echo "📋 Доступные бекапы:"
@@ -94,17 +95,15 @@ list_backups() {
 log "🚀 Восстановление Navidrome из бекапа"
 log "📁 .env файл: ${ENV_FILE}"
 log "📁 Путь бекапов: ${NAVIDROME_BACKUP_DIR}"
-log "📁 Navidrome data: ${NAVIDROME_DATA_PATH}"
+log "📁 Navidrome  ${NAVIDROME_DATA_PATH_ABS}"
 
 # Проверка наличия бекапов
 if [ ! -d "$NAVIDROME_BACKUP_DIR" ]; then
     error_exit "Директория бекапов не найдена: $NAVIDROME_BACKUP_DIR"
 fi
 
-# Показать доступные бекапы
 list_backups
 
-# Получить дату для восстановления
 RESTORE_DATE="$1"
 
 if [ -z "$RESTORE_DATE" ]; then
@@ -117,7 +116,6 @@ if [ -z "$RESTORE_DATE" ]; then
     fi
 fi
 
-# Проверка существования бекапа
 BACKUP_DIR="${NAVIDROME_BACKUP_DIR}/${RESTORE_DATE}"
 DATA_BACKUP_DIR="${BACKUP_DIR}/data"
 
@@ -129,20 +127,18 @@ if [ ! -d "$DATA_BACKUP_DIR" ]; then
     error_exit "Данные не найдены: $DATA_BACKUP_DIR"
 fi
 
-# Проверка наличия БД
 DB_FILE=$(find "$DATA_BACKUP_DIR" -name "*.db" -type f 2>/dev/null | head -1)
 if [ -z "$DB_FILE" ]; then
     error_exit "База данных не найдена в бекапе: $DATA_BACKUP_DIR"
 fi
 
-# Предупреждение
 echo ""
 echo "⚠️  ВНИМАНИЕ! ⚠️"
 echo "=========================================="
 echo "Текущие данные Navidrome будут ЗАМЕНЕНЫ на бекап от ${RESTORE_DATE}"
 echo ""
 echo "Источник: ${DATA_BACKUP_DIR}"
-echo "Назначение: ${NAVIDROME_DATA_PATH}"
+echo "Назначение: ${NAVIDROME_DATA_PATH_ABS}"
 echo ""
 echo "🎵 Музыка НЕ будет затронута (монтируется отдельно)"
 echo ""
@@ -160,31 +156,25 @@ log "🛑 Остановка контейнера $NAVIDROME_CONTAINER..."
 docker compose stop "$NAVIDROME_CONTAINER" || error_exit "Не удалось остановить Navidrome"
 log "✅ Navidrome остановлен"
 
-# 1. Восстановление данных (БД + конфиги + кэш)
 log "📁 Восстановление данных (rsync)..."
 log "🗑️ Очистка текущих данных..."
 
-# Удаляем текущие данные (кроме музыкальной библиотеки — она монтируется отдельно)
-rm -rf "${NAVIDROME_DATA_PATH:?}"/*
+rm -rf "${NAVIDROME_DATA_PATH_ABS:?}"/*
 
-# Копируем из бекапа
 rsync -av --delete \
     "${DATA_BACKUP_DIR}/" \
-    "${NAVIDROME_DATA_PATH}/" || error_exit "Не удалось восстановить данные"
+    "${NAVIDROME_DATA_PATH_ABS}/" || error_exit "Не удалось восстановить данные"
 
 log "✅ Данные восстановлены"
 
-# 2. Исправить права (если нужно)
 log "🔐 Проверка прав доступа..."
-chown -R 1000:1000 "${NAVIDROME_DATA_PATH}" 2>/dev/null || true
+chown -R 1000:1000 "${NAVIDROME_DATA_PATH_ABS}" 2>/dev/null || true
 log "✅ Права проверены"
 
-# 3. Запустить Navidrome
 log "▶️ Запуск контейнера $NAVIDROME_CONTAINER..."
 docker compose start "$NAVIDROME_CONTAINER" || error_exit "Не удалось запустить Navidrome"
 log "✅ Navidrome запущен"
 
-# 4. Проверка
 log "⏳ Ожидание запуска Navidrome (15 сек)..."
 sleep 15
 
@@ -194,7 +184,6 @@ else
     log "⚠️  Navidrome может иметь проблемы. Проверьте логи: docker compose logs navidrome"
 fi
 
-# 5. Финал
 log "🎉 Восстановление завершено успешно!"
 log "📍 Дата бекапа: ${RESTORE_DATE}"
 

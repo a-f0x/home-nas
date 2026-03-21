@@ -145,7 +145,7 @@ services:
     depends_on:
       - traefik
     volumes:
-      - ./volumes/navidrome/data:/data        # БД SQLite и кэш
+      - ${NAVIDROME_DATA_PATH}:/data        # БД SQLite и кэш
       - ${NAVIDROME_MUSIC_PATH}:/music:ro     # Музыкальная библиотека (read-only)
     environment:
       - ND_SCANSCHEDULE=1h                     # Сканировать библиотеку каждый час
@@ -166,7 +166,7 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      - ./volumes/qbittorrent/config:/config
+      - ${QBITTORRENT_CONFIG_PATH}:/config
       - ${QBITTORRENT_DOWNLOADS_PATH}:/downloads
     environment:
       - PUID=1000
