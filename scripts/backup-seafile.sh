@@ -1,46 +1,38 @@
 #!/bin/bash
-# backup-seafile.sh — Бекап Seafile с использованием переменных из .env
-# Гарантирует консистентность БД и файлов
-
-set -e  # Выход при любой ошибке
+# backup-seafile.sh — Бекап Seafile
+set -e
 
 # =====================================================
-# Загрузка переменных окружения
+# Загрузка .env
 # =====================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/../.env"
 
-# Если не нашли в parent, ищем в текущей рабочей директории
 if [ ! -f "$ENV_FILE" ]; then
     ENV_FILE="./.env"
 fi
 
-# Проверка существования .env
 if [ ! -f "$ENV_FILE" ]; then
     echo "❌ Ошибка: Файл .env не найден"
     exit 1
 fi
 
-# Загрузка переменных из .env
 set -a
 source "$ENV_FILE"
 set +a
 
 # =====================================================
-# Настройки (из .env или значения по умолчанию)
+# Настройки
 # =====================================================
 BACKUP_BASE="/mnt/media/volume-b/backup/seafile"
 DB_CONTAINER="mariadb"
 SEAFILE_CONTAINER="seafile"
 RETENTION_DAYS=7
 
-# Директории
 BACKUP_DIR="${BACKUP_BASE}/$(date +%F)"
 DB_BACKUP_DIR="${BACKUP_DIR}/db"
 DATA_BACKUP_DIR="${BACKUP_DIR}/data"
 LOG_FILE="${BACKUP_BASE}/backup.log"
-
-# Пути из .env
 SEAFILE_VOLUME_PATH="${SEAFILE_VOLUME:-./volumes/seafile-data}"
 
 # =====================================================
@@ -60,42 +52,45 @@ error_exit() {
 # Основной процесс
 # =====================================================
 log "🚀 Начало бекапа Seafile"
-log "📁 .env файл: ${ENV_FILE}"
-log "📁 Seafile volume: ${SEAFILE_VOLUME_PATH}"
 
 # 1. Остановить Seafile
 log "🛑 Остановка контейнера $SEAFILE_CONTAINER..."
 docker compose stop "$SEAFILE_CONTAINER" || error_exit "Не удалось остановить Seafile"
 log "✅ Seafile остановлен"
 
-# 2. Создать директории для бекапа
+# 2. Создать директории
 log "📁 Создание директорий для бекапа..."
 mkdir -p "$DB_BACKUP_DIR" "$DATA_BACKUP_DIR" || error_exit "Не удалось создать директории"
 
-# 3. Дамп баз данных (через --defaults-extra-file)
+# 3. Дамп баз данных (ИСПРАВЛЕНО: конфиг на хосте → copy в контейнер)
 log "🗄️ Дамп баз данных (ccnet_db, seafile_db, seahub_db)..."
 
-# Создаём временный конфиг с паролем внутри контейнера
-docker exec "$DB_CONTAINER" /bin/sh -c "cat > /tmp/backup.cnf <<EOF
+# Создаём временный конфиг НА ХОСТЕ
+MYSQL_CONFIG_FILE=$(mktemp)
+cat > "$MYSQL_CONFIG_FILE" <<EOF
 [client]
 user=root
 password=${MYSQL_ROOT_PASSWORD}
 EOF
-chmod 600 /tmp/backup.cnf"
+chmod 600 "$MYSQL_CONFIG_FILE"
 
-# Используем --defaults-extra-file вместо -p
+# Копируем конфиг В контейнер
+docker cp "$MYSQL_CONFIG_FILE" "${DB_CONTAINER}:/tmp/backup.cnf" || error_exit "Не удалось скопировать конфиг в контейнер"
+
+# Делаем дамп с использованием конфига
 docker exec "$DB_CONTAINER" /usr/bin/mariadb-dump \
     --defaults-extra-file=/tmp/backup.cnf \
     ccnet_db seafile_db seahub_db | gzip \
     > "${DB_BACKUP_DIR}/seafile-$(date +%F).sql.gz" || error_exit "Не удалось создать дамп БД"
 
-# Чистим временный файл в контейнере
+# Чистим конфиг в контейнере и на хосте
 docker exec "$DB_CONTAINER" rm -f /tmp/backup.cnf
+rm -f "$MYSQL_CONFIG_FILE"
 
 DB_SIZE=$(du -h "${DB_BACKUP_DIR}/seafile-$(date +%F).sql.gz" | cut -f1)
 log "✅ Дамп создан: ${DB_SIZE}"
 
-# 4. Бекап файловых данных
+# 4. Бекап файлов
 log "📁 Копирование файловых данных (rsync)..."
 rsync -av --delete \
     "${SEAFILE_VOLUME_PATH}/" \
@@ -104,12 +99,12 @@ rsync -av --delete \
 DATA_SIZE=$(du -sh "${DATA_BACKUP_DIR}" | cut -f1)
 log "✅ Файлы скопированы: ${DATA_SIZE}"
 
-# 5. Запустить Seafile обратно
+# 5. Запустить Seafile
 log "▶️ Запуск контейнера $SEAFILE_CONTAINER..."
 docker compose start "$SEAFILE_CONTAINER" || error_exit "Не удалось запустить Seafile"
 log "✅ Seafile запущен"
 
-# 6. Ротация: удалить старые бекапы
+# 6. Ротация
 log "🗑️ Удаление бекапов старше ${RETENTION_DAYS} дней..."
 DELETED_COUNT=$(find "${BACKUP_BASE}" -maxdepth 1 -type d -name "20*" -mtime +${RETENTION_DAYS} | wc -l)
 find "${BACKUP_BASE}" -maxdepth 1 -type d -name "20*" -mtime +${RETENTION_DAYS} -exec rm -rf {} \;
@@ -119,7 +114,6 @@ log "✅ Удалено старых бекапов: ${DELETED_COUNT}"
 log "🎉 Бекап завершён успешно!"
 log "📍 Путь: ${BACKUP_DIR}"
 
-# Показать сводку
 echo ""
 echo "=========================================="
 echo "📊 Сводка бекапа"
